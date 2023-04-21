@@ -8,19 +8,21 @@ char state;
 int btTX = 1;
 int btRX = 0;
 //Motor control
-int EN1 = 5;    //pwm digital (9 OR 10)
-int INA1 = 8;   //digital
-int INA2 = 7;   //digital
-int EN2 = 6;   //pwm digital (9 OR 10)
-int INB1 = 11;  //digital
-int INB2 = 4;   //digital
+int EN1 = 5;       //pwm digital (9 OR 10)
+int INA1 = 8;      //digital
+int INA2 = 7;      //digital
+int EN2 = 6;       //pwm digital (9 OR 10)
+int INB1 = 11;     //digital
+int INB2 = 4;      //digital
+int speedL = 140;  //speed
+int speedR = 112;  //speed
 //Servos
 Servo cameraControl;  //between 75 and 120
 Servo claw;           //between 0 and 75
 //bool clawOpen = false;
 //bool camUp = false;
-int servo1 = 9;       //camera
-int servo2 = 10;      //claw
+int servo1 = 9;   //camera
+int servo2 = 10;  //claw
 //Encoders
 int encoder1 = 2;  //digital with interrupt (2 OR 3)
 int encoder2 = 3;  //digital with interrupt (2 OR 3)
@@ -34,6 +36,8 @@ int objectMax = 120;
 int faceWidth = 20;
 HUSKYLENS lens;
 int ID1 = 1;
+bool seenObj = false;
+bool seenFace = false;
 //IRsensor
 int IRSensor = 13;
 
@@ -49,7 +53,7 @@ void setup() {
   // Huskylens setup
   //Serial.begin(115200);
   Wire.begin();
-  while(!lens.begin(Wire)){
+  while (!lens.begin(Wire)) {
     Serial.println(F("Failed to begin"));
     delay(100);
   }
@@ -76,95 +80,128 @@ void loop() {
   // Get the current bluetooth command
   bluetooth();
 
+  if(value != state){
+    leftCount = 0;
+    rightCount = 0;
+  }
+
   // Run commands based on signal
   switch (value) {
     case 'F':  //forward
       forward();
+      seenObj = false;
+      seenFace = false;
       break;
     case 'B':  //backward
       backward();
+      seenObj = false;
+      seenFace = false;
       break;
     case 'L':  //leftTurn
       leftTurn();
+      seenObj = false;
+      seenFace = false;
       break;
     case 'R':  //rightTurn
       rightTurn();
+      seenObj = false;
+      seenFace = false;
       break;
-    case 'P': //leftPivot
+    case 'P':  //leftPivot
       leftPivot();
+      seenObj = false;
+      seenFace = false;
       break;
-    case 'Q': //rightPivot
+    case 'Q':  //rightPivot
       rightPivot();
+      seenObj = false;
+      seenFace = false;
       break;
-    case 'U': //lookUp
+    case 'U':  //lookUp
       lookUp();
+      seenObj = false;
+      seenFace = false;
       break;
     case 'D':  //lookDown
       lookDown();
+      seenObj = false;
+      seenFace = false;
       break;
     case 'O':  //openGrip
       openGrip();
+      seenObj = false;
+      seenFace = false;
       break;
-    case 'C': //closeGrip
+    case 'C':  //closeGrip
       closeGrip();
+      seenObj = false;
+      seenFace = false;
       break;
     case 'S':  //stop
       stop();
+      seenObj = false;
+      seenFace = false;
       break;
-    case 'X': // Track object
+    case 'X':  // Track object
       lookDown();
       if (!lens.request()) {
         //Serial.println(F("Fail to request data from HUSKYLENS, recheck the connection!"));
       } else if (!lens.isLearned()) {
         //Serial.println(F("Nothing learned, press learn button on HUSKYLENS to learn one!"));
       } else if (!lens.available()) {
-        stop();
-        delay(500);
-        leftPivot();
+        if (seenObj) { leftPivot(); }
         //Serial.println(F("No block or arrow appears on the screen!"));
       } else {
+        seenObj = true;
+        openGrip();
         HUSKYLENSResult result = lens.read();
-        if (result.width < objectWidth) {
-          forward();
-        } else if (result.xCenter < leftBounds) {
-          rightTurn();
-        } else if (result.xCenter > rightBounds) {
+        if(result.yCenter > 160){
+          lookDownPlus();
+        }
+        if (result.xCenter < leftBounds - 40) {
           leftTurn();
+        } else if (result.xCenter > rightBounds + 40) {
+          rightTurn();
+        } else if (result.width < objectWidth) {
+          forward();
         }
 
-      if (digitalRead(IRSensor) == LOW){
-        closeGrip();
-        leftPivot();
-        delay(2000);
-        stop();
-      }
+        if (digitalRead(IRSensor) == LOW) {
+          closeGrip();
+          stop();
+          seenObj = false;
+        }
         //printResult(result);
       }
 
       break;
-    case 'Z': // Track Face
+    case 'Z':  // Track Face
       lookUp();
       if (!lens.request()) {
-          //Serial.println(F("Fail to request data from HUSKYLENS, recheck the connection!"));
-        } else if (!lens.isLearned()) {
-          //Serial.println(F("Nothing learned, press learn button on HUSKYLENS to learn one!"));
-        } else if (!lens.available()) {
-          stop();
-          delay(500);
-        leftPivot();
-          //Serial.println(F("No block or arrow appears on the screen!"));
-        } else {
-          HUSKYLENSResult result = lens.read();
-          if (result.width < faceWidth) {
-            forward();
-          } else if (result.xCenter < leftBounds - 40) {
-            rightTurn();
-          } else if (result.xCenter > rightBounds + 40) {
-            leftTurn();
-          }
+        //Serial.println(F("Fail to request data from HUSKYLENS, recheck the connection!"));
+      } else if (!lens.isLearned()) {
+        //Serial.println(F("Nothing learned, press learn button on HUSKYLENS to learn one!"));
+      } else if (!lens.available()) {
+        if (seenFace) { leftPivot(); }
+        //Serial.println(F("No block or arrow appears on the screen!"));
+      } else {
+        seenFace = true;
+        HUSKYLENSResult result = lens.read();
+
+        if(result.yCenter > 160){
+          lookDownPlus();
         }
-        break;
+        if (result.xCenter < leftBounds - 60) {
+          leftTurn();
+        } else if (result.xCenter > rightBounds + 60) {
+          rightTurn();
+        } else if (result.width < objectWidth) {
+          forward();
+        }
+      }
+      break;
   }
+  state = value;
 }
 
 // void printResult(HUSKYLENSResult result)                        //Display the results on the serial monitor
@@ -206,19 +243,16 @@ void forward() {
   digitalWrite(INB1, HIGH);
   digitalWrite(INA2, LOW);
   digitalWrite(INB2, LOW);
-  if(leftCount > (rightCount * 1.23) + 10) {
-    analogWrite(EN1, 158);
-    analogWrite(EN2, 192);
-  } 
-  else if(rightCount > leftCount + 10) {
-    analogWrite(EN1, 192);
-    analogWrite(EN2, 128);
-  } 
-  else{
-    analogWrite(EN1, 158);
-    analogWrite(EN2, 128);
+  if (leftCount > (rightCount * 1.20) + 10) {
+    analogWrite(EN1, speedL);
+    analogWrite(EN2, speedR * 1.1);
+  } else if (rightCount > leftCount + 10) {
+    analogWrite(EN1, speedL * 1.1);
+    analogWrite(EN2, speedR);
+  } else {
+    analogWrite(EN1, speedL);
+    analogWrite(EN2, speedR);
   }
-
 }
 
 void backward() {
@@ -226,77 +260,71 @@ void backward() {
   digitalWrite(INB1, LOW);
   digitalWrite(INA2, HIGH);
   digitalWrite(INB2, HIGH);
-  if(leftCount > (rightCount * 1.23) + 10) {
-    analogWrite(EN1, 158);
-    analogWrite(EN2, 192);
-  } 
-  else if(rightCount > leftCount + 10) {
-    analogWrite(EN1, 192);
-    analogWrite(EN2, 128);
-  } 
-  else{
-    analogWrite(EN1, 158);
-    analogWrite(EN2, 128);
+  if (leftCount > (rightCount * 1.20) + 10) {
+    analogWrite(EN1, speedL);
+    analogWrite(EN2, speedR * 1.1);
+  } else if (rightCount > leftCount + 10) {
+    analogWrite(EN1, speedL * 1.1);
+    analogWrite(EN2, speedR);
+  } else {
+    analogWrite(EN1, speedL);
+    analogWrite(EN2, speedR);
   }
 }
 
-void leftTurn(){
+void leftTurn() {
   digitalWrite(INA1, HIGH);
   digitalWrite(INB1, HIGH);
   digitalWrite(INA2, LOW);
   digitalWrite(INB2, LOW);
-  if(leftCount > (rightCount / 1.5) + 10){
-    analogWrite(EN1, 98);
-    analogWrite(EN2, 256);
-  }
-  else if(leftCount < (rightCount / 1.5) - 10){
-    analogWrite(EN1, 158);
-    analogWrite(EN2, 256);
-  }
-  else{
-    analogWrite(EN1, 128);
-    analogWrite(EN2, 256);
-  }
+  // if (leftCount > (rightCount / 1.5) + 200) {
+  //   analogWrite(EN1, speedL * 0.5);
+  //   analogWrite(EN2, speedR * 1.4);
+  // } else if (leftCount < (rightCount / 1.5) - 20) {
+  //   analogWrite(EN1, speedL * 1.4);
+  //   analogWrite(EN2, speedR * 0.5);
+  // } else {
+    analogWrite(EN1, speedL * 0.6);
+    analogWrite(EN2, speedR * 1.4);
+  //}
 }
 
-void rightTurn(){
+void rightTurn() {
   digitalWrite(INA1, HIGH);
   digitalWrite(INB1, HIGH);
   digitalWrite(INA2, LOW);
   digitalWrite(INB2, LOW);
-  if(rightCount > (leftCount / 1.5) + 10){
-    analogWrite(EN1, 256);
-    analogWrite(EN2, 98);
-  }
-  else if(rightCount < (leftCount / 1.5) - 10){
-    analogWrite(EN1, 256);
-    analogWrite(EN2, 158);
-  }
-  else{
-    analogWrite(EN1, 256);
-    analogWrite(EN2, 128);
-  }
+  // if (rightCount > (leftCount / 1.5) + 2) {
+  //   analogWrite(EN1, speedL * 1.4);
+  //   analogWrite(EN2, speedR * 0.5);
+  // } else if (rightCount < (leftCount / 1.5) - 20) {
+  //   analogWrite(EN1, speedL * 0.5);
+  //   analogWrite(EN2, speedR * 1.4);
+  // } else {
+    analogWrite(EN1, speedL * 1.4);
+    analogWrite(EN2, speedR * 0.6);
+  //}
 }
 
-void leftPivot(){
+void leftPivot() {
   digitalWrite(INA1, LOW);
   digitalWrite(INA2, HIGH);
   digitalWrite(INB1, HIGH);
   digitalWrite(INB2, LOW);
-  analogWrite(EN1, 128);
-  analogWrite(EN2, 98);
+  analogWrite(EN1, speedL);
+  analogWrite(EN2, speedR);
 }
 
-void rightPivot(){
+void rightPivot() {
   digitalWrite(INA1, HIGH);
   digitalWrite(INA2, LOW);
   digitalWrite(INB1, LOW);
   digitalWrite(INB2, HIGH);
-  analogWrite(EN1, 128);
-  analogWrite(EN2, 98);
+  analogWrite(EN1, speedL);
+  analogWrite(EN2, speedR);
 }
 
-void stop(){
+void stop() {
   digitalWrite(INA1, LOW);
   digitalWrite(INA2, LOW);
   digitalWrite(INB1, LOW);
@@ -305,22 +333,27 @@ void stop(){
   analogWrite(EN2, 0);
 }
 
-void lookUp(){
+void lookUp() {
   cameraControl.write(120);
   //camUp = true;
 }
 
-void lookDown(){
+void lookDown() {
   cameraControl.write(65);
   //camUp = false;
 }
 
-void openGrip(){
+void lookDownPlus() {
+  cameraControl.write(30);
+  //camUp = false;
+}
+
+void openGrip() {
   claw.write(0);
   //clawOpen = true;
 }
 
-void closeGrip(){
-  claw.write(75);
+void closeGrip() {
+  claw.write(60);
   //clawOpen = false;
 }
